@@ -58,7 +58,7 @@
     }
     function redraw() {
       clearCanvas();
-      if (points.length < 2) { drawPen(); return; }
+      if (points.length < 2) return;
       ctx.strokeStyle = "#fff";
       ctx.lineWidth = 3;
       ctx.lineJoin = "round";
@@ -67,29 +67,18 @@
       ctx.moveTo(points[0].x * W, points[0].y * H);
       for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x * W, points[i].y * H);
       ctx.stroke();
-      drawPen();
-    }
-    function drawPen() {
-      const p = points[points.length - 1];
-      if (!p) return;
-      ctx.fillStyle = "#fff";
-      ctx.beginPath();
-      ctx.arc(p.x * W, p.y * H, 8, 0, Math.PI * 2);
-      ctx.fill();
     }
     function addPoint(p) {
       const prev = points[points.length - 1];
       points.push(p);
-      // draw just the new segment (efficient — no full redraw)
+      if (!prev) return;
+      // draw just the new segment (line only, no dots)
       ctx.strokeStyle = "#fff"; ctx.lineWidth = 3;
       ctx.lineJoin = "round"; ctx.lineCap = "round";
-      if (prev) {
-        ctx.beginPath();
-        ctx.moveTo(prev.x * W, prev.y * H);
-        ctx.lineTo(p.x * W, p.y * H);
-        ctx.stroke();
-      }
-      drawPen();
+      ctx.beginPath();
+      ctx.moveTo(prev.x * W, prev.y * H);
+      ctx.lineTo(p.x * W, p.y * H);
+      ctx.stroke();
     }
 
     // ---- Firebase --------------------------------------------------------
