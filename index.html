@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>PenDraw — Live Sketch</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; background: #000; overflow: hidden; }
+    #c { display: block; touch-action: none; }
+    #hud {
+      position: fixed; top: 10px; left: 10px;
+      font: 13px/1.4 -apple-system, Segoe UI, Roboto, sans-serif;
+      color: #fff; background: rgba(0,0,0,.45);
+      padding: 6px 10px; border-radius: 8px; pointer-events: none;
+    }
+    #hud .dot { display:inline-block; width:8px; height:8px; border-radius:50%;
+                background:#f33; margin-right:6px; vertical-align:middle; }
+    #hud.live .dot { background:#3f6; }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="hud"><span class="dot"></span><span id="status">connecting…</span></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getDatabase, ref, onChildAdded, onValue }
+      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+    import { firebaseConfig, DRAWING_PATH } from "./firebase-config.js";
+
+    const canvas = document.getElementById("c");
+    const ctx = canvas.getContext("2d");
+    const statusEl = document.getElementById("status");
+    const hud = document.getElementById("hud");
+
+    // ---- canvas sizing (crisp on retina) --------------------------------
+    let W = 0, H = 0;
+    function resize() {
+      const dpr = window.devicePixelRatio || 1;
+      W = window.innerWidth; H = window.innerHeight;
+      canvas.style.width = W + "px";
+      canvas.style.height = H + "px";
+      canvas.width = Math.round(W * dpr);
+      canvas.height = Math.round(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      redraw();
+    }
+    window.addEventListener("resize", resize);
+
+    // ---- drawing ---------------------------------------------------------
+    // points are stored NORMALIZED (0..1) so any screen size renders correctly
+    let points = [];
+
+    function clearCanvas() {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, W, H);
+    }
+    function redraw() {
+      clearCanvas();
+      if (points.length < 2) { drawPen(); return; }
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 3;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(points[0].x * W, points[0].y * H);
+      for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x * W, points[i].y * H);
+      ctx.stroke();
+      drawPen();
+    }
+    function drawPen() {
+      const p = points[points.length - 1];
+      if (!p) return;
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(p.x * W, p.y * H, 8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    function addPoint(p) {
+      const prev = points[points.length - 1];
+      points.push(p);
+      // draw just the new segment (efficient — no full redraw)
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 3;
+      ctx.lineJoin = "round"; ctx.lineCap = "round";
+      if (prev) {
+        ctx.beginPath();
+        ctx.moveTo(prev.x * W, prev.y * H);
+        ctx.lineTo(p.x * W, p.y * H);
+        ctx.stroke();
+      }
+      drawPen();
+    }
+
+    // ---- Firebase --------------------------------------------------------
+    let live = false;
+    function setStatus(txt, isLive) {
+      statusEl.textContent = txt;
+      if (isLive !== undefined) { live = isLive; hud.classList.toggle("live", isLive); }
+    }
+
+    resize();
+
+    if (String(firebaseConfig.apiKey).includes("PASTE_ME")) {
+      setStatus("⚠ Firebase not configured — edit web/firebase-config.js", false);
+    } else {
+      try {
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const pointsRef = ref(db, DRAWING_PATH);
+
+        // replay existing points + receive new ones, one at a time (efficient)
+        onChildAdded(pointsRef, (snap) => {
+          const v = snap.val();
+          if (v && typeof v.x === "number" && typeof v.y === "number") {
+            addPoint({ x: v.x, y: v.y });
+            setStatus(points.length + " points · live", true);
+          }
+        });
+
+        // detect the "Clean" action (whole node removed -> null)
+        onValue(pointsRef, (snap) => {
+          if (snap.val() === null) {
+            points = [];
+            clearCanvas();
+            setStatus("cleared · waiting…", true);
+          }
+        });
+
+        setStatus("connected · waiting for the pen…", true);
+      } catch (e) {
+        setStatus("Firebase error: " + e.message, false);
+        console.error(e);
+      }
+    }
+  </script>
+</body>
+</html>

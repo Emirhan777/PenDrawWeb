@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>PenDraw — Phone Simulator (test tool)</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; background: #111; overflow: hidden;
+      font-family: -apple-system, Segoe UI, Roboto, sans-serif; }
+    #pad { position: absolute; inset: 0; cursor: crosshair; touch-action: none; }
+    #pen { position: absolute; width: 20px; height: 20px; margin: -10px 0 0 -10px;
+      border-radius: 50%; background: #3af; pointer-events: none; box-shadow: 0 0 12px #3af; }
+    #bar { position: fixed; top: 10px; left: 10px; right: 10px; display: flex;
+      gap: 10px; align-items: center; color: #ccc; font-size: 13px; }
+    button { font: inherit; padding: 8px 14px; border: 0; border-radius: 8px;
+      background: #fff; color: #111; cursor: pointer; }
+    #tip { position: fixed; bottom: 14px; left: 0; right: 0; text-align: center;
+      color: #888; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div id="pad"></div>
+  <div id="pen"></div>
+  <div id="bar">
+    <button id="clean">Clean</button>
+    <span id="status">connecting…</span>
+  </div>
+  <div id="tip">🖱️ Press & drag anywhere to "sketch" — open index.html in another tab to watch it appear.</div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getDatabase, ref, push, remove }
+      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+    import { firebaseConfig, DRAWING_PATH } from "./firebase-config.js";
+
+    const pad = document.getElementById("pad");
+    const pen = document.getElementById("pen");
+    const statusEl = document.getElementById("status");
+
+    let db = null, pointsRef = null;
+    if (String(firebaseConfig.apiKey).includes("PASTE_ME")) {
+      statusEl.textContent = "⚠ Firebase not configured — edit web/firebase-config.js";
+    } else {
+      const app = initializeApp(firebaseConfig);
+      db = getDatabase(app);
+      pointsRef = ref(db, DRAWING_PATH);
+      statusEl.textContent = "connected — drag to draw";
+    }
+
+    let drawing = false, sent = 0, lastSend = 0;
+    function sendFromEvent(e) {
+      const nx = Math.min(Math.max(e.clientX / window.innerWidth, 0), 1);
+      const ny = Math.min(Math.max(e.clientY / window.innerHeight, 0), 1);
+      pen.style.left = e.clientX + "px";
+      pen.style.top = e.clientY + "px";
+      const now = performance.now();
+      if (pointsRef && now - lastSend >= 40) {   // throttle ~25 Hz
+        lastSend = now;
+        push(pointsRef, { x: nx, y: ny });
+        sent++;
+        statusEl.textContent = "sent " + sent + " points";
+      }
+    }
+    pad.addEventListener("pointerdown", (e) => { drawing = true; pad.setPointerCapture(e.pointerId); sendFromEvent(e); });
+    pad.addEventListener("pointermove", (e) => { if (drawing) sendFromEvent(e); });
+    pad.addEventListener("pointerup",   () => { drawing = false; });
+
+    document.getElementById("clean").addEventListener("click", () => {
+      if (pointsRef) { remove(pointsRef); sent = 0; statusEl.textContent = "cleared"; }
+    });
+  </script>
+</body>
+</html>
