@@ -16,8 +16,12 @@
     button.sec { background:#2a2a38; }
     .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; }
     .word { font-size:40px; font-weight:800; letter-spacing:1px; text-align:center; color:var(--good); }
-    #pad { flex:1; min-height:280px; background:#000; border:1px solid var(--line); border-radius:14px; position:relative; touch-action:none; cursor:crosshair; }
+    #pad { position:fixed; inset:0; background:#000; touch-action:none; cursor:crosshair; }
     #penDot { position:absolute; width:16px; height:16px; margin:-8px 0 0 -8px; border-radius:50%; background:var(--accent); box-shadow:0 0 10px var(--accent); pointer-events:none; }
+    .drawWord { position:fixed; top:14px; left:50%; transform:translateX(-50%); text-align:center; pointer-events:none; text-shadow:0 1px 6px rgba(0,0,0,0.95); z-index:5; }
+    .drawWord .wl { display:block; color:rgba(255,255,255,0.7); font-size:14px; }
+    .drawWord .ww { display:block; color:var(--good); font-weight:800; font-size:30px; letter-spacing:1px; }
+    #clearBtn { position:fixed; top:14px; right:14px; width:auto; z-index:6; background:rgba(255,255,255,0.9); color:#111; font-size:15px; font-weight:700; padding:10px 16px; border-radius:10px; }
     .row { display:flex; gap:10px; } .row input { flex:1; } .row button { width:auto; padding:14px 20px; }
     .big { font-size:26px; font-weight:800; text-align:center; }
     .center { text-align:center; }
@@ -98,10 +102,9 @@
       }
       // status === playing
       if(iAmDrawer){
-        stage.innerHTML = `<div class="card center"><div class="muted">Draw this (only you can see it):</div>
-            <div class="word">${(r.word||"").toUpperCase()}</div></div>
-          <div id="pad"><div id="penDot" style="left:50%;top:50%"></div></div>
-          <p class="muted center">Drag to draw — it shows on the big screen.</p>`;
+        stage.innerHTML = `<div id="pad"><div id="penDot" style="left:50%;top:50%"></div></div>
+          <div class="drawWord"><span class="wl">Draw this (only you can see it):</span><span class="ww">${(r.word||"").toUpperCase()}</span></div>
+          <button id="clearBtn">Clear</button>`;
         wirePad();
       } else {
         const dn = players[r.drawerId]?.name || "someone";
@@ -120,14 +123,17 @@
     function wirePad(){
       const pad=$("pad"), dot=$("penDot"); let drawing=false, last=0;
       const pointsRef = ref(db,`rooms/${code}/drawing/points`);
-      const send=(e)=>{ const rect=pad.getBoundingClientRect();
+      const send=(e, isStart)=>{ const rect=pad.getBoundingClientRect();
         const nx=Math.min(Math.max((e.clientX-rect.left)/rect.width,0),1);
         const ny=Math.min(Math.max((e.clientY-rect.top)/rect.height,0),1);
         dot.style.left=(e.clientX-rect.left)+"px"; dot.style.top=(e.clientY-rect.top)+"px";
-        const now=performance.now(); if(now-last>=40){ last=now; push(pointsRef,{x:nx,y:ny}); } };
-      pad.addEventListener("pointerdown",(e)=>{ drawing=true; pad.setPointerCapture(e.pointerId); send(e); });
+        const now=performance.now();
+        if(isStart){ last=now; push(pointsRef,{x:nx,y:ny,m:true}); return; } // pen-lift: new stroke
+        if(now-last>=40){ last=now; push(pointsRef,{x:nx,y:ny}); } };
+      pad.addEventListener("pointerdown",(e)=>{ drawing=true; pad.setPointerCapture(e.pointerId); send(e,true); });
       pad.addEventListener("pointermove",(e)=>{ if(drawing) send(e); });
       pad.addEventListener("pointerup",()=>{ drawing=false; });
+      $("clearBtn").onclick = ()=>{ remove(pointsRef); set(ref(db,`rooms/${code}/drawing/clear`), Date.now()); };
     }
 
     // ----- guesser -----
