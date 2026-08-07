@@ -71,6 +71,8 @@
     <div id="feedOv" class="ov"></div>
 
     <div id="drawerBtns">
+      <button id="modeBtn">✋ Finger</button>
+      <button id="recenterBtn" style="display:none">Recenter</button>
       <button id="clearBtn">Clear</button>
       <button id="skipBtn">Skip</button>
     </div>
@@ -101,6 +103,7 @@
     let status=null, round={}, players={};
     let role=null;            // 'drawer' | 'guesser' | null
     let lastRoundN=null;
+    let inputMode='finger';   // 'finger' | 'tilt' (phone orientation, like the app)
 
     const q = new URLSearchParams(location.search).get("room"); if(q) $("codeIn").value=q;
 
@@ -141,12 +144,59 @@
       if(isStart){ last=now; const p={x:nx,y:ny,m:true}; addSeg(p); push(pointsRef(),p); return; }
       if(now-last>=40){ last=now; const p={x:nx,y:ny}; addSeg(p); push(pointsRef(),p); }
     }
-    pad.addEventListener("pointerdown",(e)=>{ if(role!=="drawer") return; drawing=true; pad.setPointerCapture(e.pointerId); sendPoint(e,true); });
+    pad.addEventListener("pointerdown",(e)=>{ if(role!=="drawer" || inputMode!=="finger") return; drawing=true; pad.setPointerCapture(e.pointerId); sendPoint(e,true); });
     pad.addEventListener("pointermove",(e)=>{ if(drawing) sendPoint(e); });
     pad.addEventListener("pointerup",  ()=>{ drawing=false; });
 
     $("clearBtn").onclick = ()=>{ if(role!=="drawer") return; resetSketch(); remove(pointsRef()); set(ref(db,`rooms/${code}/drawing/clear`), Date.now()); };
     $("skipBtn").onclick  = ()=>{ if(role!=="drawer") return; set(ref(db,`rooms/${code}/skip`), Date.now()); };
+
+    // ---------- tilt (phone orientation) input — like the native app ----------
+    const YAW_GAIN=1.6, PITCH_GAIN=3.0;
+    const clampN=(v,lo,hi)=>Math.min(Math.max(v,lo),hi);
+    const wrapPi=(a)=>{ a=a%(2*Math.PI); if(a>Math.PI)a-=2*Math.PI; if(a<-Math.PI)a+=2*Math.PI; return a; };
+    let calib={yaw0:0,pitch0:0,anchorX:0.5,anchorY:0.5}, needsCalib=false, pendingBreak=false;
+    let tiltLast=null, tiltLastT=0, orientAttached=false;
+
+    function tiltToNorm(yaw,pitch){
+      const dYaw=wrapPi(yaw-calib.yaw0);
+      const normX=clampN(calib.anchorX-(dYaw*YAW_GAIN)/Math.PI,0,1);
+      const normY=clampN(calib.anchorY-((pitch-calib.pitch0)*PITCH_GAIN)/Math.PI,0,1);
+      return {normX,normY};
+    }
+    function onOrient(e){
+      if(role!=="drawer" || inputMode!=="tilt" || e.alpha==null || e.beta==null) return;
+      const yaw=e.alpha*Math.PI/180, pitch=e.beta*Math.PI/180;
+      if(needsCalib){ calib={yaw0:yaw,pitch0:pitch,anchorX:0.5,anchorY:0.5}; needsCalib=false; tiltLast=null; pendingBreak=true; }
+      const {normX,normY}=tiltToNorm(yaw,pitch);
+      dot.style.left=(normX*W)+"px"; dot.style.top=(normY*H)+"px";
+      const now=performance.now();
+      if(now-tiltLastT<30) return;
+      if(tiltLast && Math.hypot(normX-tiltLast.x,normY-tiltLast.y)<0.005) return;
+      tiltLastT=now; tiltLast={x:normX,y:normY};
+      const p={x:normX,y:normY}; if(pendingBreak){ p.m=true; pendingBreak=false; }
+      addSeg(p); push(pointsRef(),p);
+    }
+    async function enableTilt(){
+      try {
+        if(typeof DeviceOrientationEvent!=="undefined" && typeof DeviceOrientationEvent.requestPermission==="function"){
+          const res=await DeviceOrientationEvent.requestPermission();
+          if(res!=="granted"){ alert("Motion access denied — staying on Finger."); inputMode="finger"; updateModeUI(); return; }
+        }
+        if(!orientAttached){ addEventListener("deviceorientation", onOrient); orientAttached=true; }
+        needsCalib=true;
+      } catch(err){ alert("Tilt isn't available here — staying on Finger."); inputMode="finger"; updateModeUI(); }
+    }
+    function updateModeUI(){
+      $("modeBtn").textContent = inputMode==="tilt" ? "📱 Tilt" : "✋ Finger";
+      $("recenterBtn").style.display = inputMode==="tilt" ? "inline-block" : "none";
+    }
+    $("modeBtn").onclick = async ()=>{
+      if(role!=="drawer") return;
+      if(inputMode==="finger"){ inputMode="tilt"; await enableTilt(); } else { inputMode="finger"; }
+      updateModeUI();
+    };
+    $("recenterBtn").onclick = ()=>{ if(inputMode==="tilt") needsCalib=true; };
 
     // ---------- guessing ----------
     function sendGuess(){ const t=($("guessIn").value||"").trim(); if(!t) return;
@@ -179,7 +229,7 @@
     }
 
     function onState(){
-      if(round.n !== lastRoundN){ lastRoundN = round.n; resetSketch(); $("feedOv").innerHTML=""; }
+      if(round.n !== lastRoundN){ lastRoundN = round.n; resetSketch(); $("feedOv").innerHTML=""; if(inputMode==="tilt") needsCalib=true; }
       const playing = status==="playing";
       role = playing ? (round.drawerId===pid ? "drawer" : "guesser") : null;
       const iAmDrawer = role==="drawer";
