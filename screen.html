@@ -94,7 +94,7 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getDatabase, ref, get, set, update, remove, onValue, onChildAdded, increment, serverTimestamp }
+    import { getDatabase, ref, get, set, update, remove, push, onValue, onChildAdded, increment, serverTimestamp }
       from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
     import { firebaseConfig } from "./firebase-config.js";
 
@@ -111,7 +111,7 @@
     const homeEl=$("home"), gameEl=$("game"), canvas=$("canvas"), ctx=canvas.getContext("2d");
 
     let code = null, word = null, drawerId = null, turnIndex = 0, roundNo = 0;
-    let players = {}, correct = {}, judged = new Set();
+    let players = {}, correct = {}, judged = new Set(), curStatus = null;
 
     // ---------- canvas (full screen) ----------
     let W=0,H=0;
@@ -151,12 +151,15 @@
       onValue(ref(db,`rooms/${code}/round`), (s)=>{ const r=s.val();
         word = r?.word || null; drawerId = r?.drawerId || null; roundNo = r?.n || 0; correct = r?.correctGuessers || {};
         renderScoreboard(); });
-      onValue(ref(db,`rooms/${code}/status`), (s)=>{ renderStatus(s.val()); });
+      onValue(ref(db,`rooms/${code}/status`), (s)=>{ curStatus = s.val(); renderStatus(curStatus); });
       // live drawing (lightweight: one point at a time)
       onChildAdded(ref(db,`rooms/${code}/drawing/points`), (s)=>{ const v=s.val(); if(v&&typeof v.x==="number") addSeg(v); });
       onValue(ref(db,`rooms/${code}/drawing/clear`), (s)=>{ if(s.exists()) resetDrawing(); });
       // guesses (authority judges here)
       onChildAdded(ref(db,`rooms/${code}/guesses`), (s)=> judgeGuess(s.key, s.val()));
+      // a player pressed Skip -> end the round (authority acts)
+      let lastSkip = null;
+      onValue(ref(db,`rooms/${code}/skip`), (s)=>{ const v=s.val(); if(lastSkip===null){ lastSkip=v; return; } if(v!==lastSkip){ lastSkip=v; if(curStatus==="playing") endRound(); } });
     }
 
     function judgeGuess(key, g){
@@ -171,10 +174,12 @@
         update(ref(db,`rooms/${code}/round/correctGuessers`), { [g.pid]: true });
         update(ref(db,`rooms/${code}/players`), { [`${g.pid}/score`]: increment(100) });
         addFeed(`${esc(nm)} <span class="ok">guessed</span> it!`);
+        push(ref(db,`rooms/${code}/feed`), { name: nm, text: g.text, correct: true });
         const guessers = Object.keys(players).filter(p=>p!==drawerId);
         if(guessers.length && guessers.every(p=>correct[p])) endRound();
       } else {
         addFeed(`${esc(nm)}: <span class="bad">${esc(g.text)}</span>`);
+        push(ref(db,`rooms/${code}/feed`), { name: nm, text: g.text, correct: false });
       }
     }
 
@@ -196,6 +201,7 @@
       $("feed").innerHTML = "";
       await remove(ref(db,`rooms/${code}/drawing/points`));
       await remove(ref(db,`rooms/${code}/guesses`));
+      await remove(ref(db,`rooms/${code}/feed`));
       resetDrawing();
       await set(ref(db,`rooms/${code}/round`), { n:roundNo, turnIndex:idx, drawerId:drawer, word:w, order, correctGuessers:{}, startedAt: serverTimestamp() });
       await set(ref(db,`rooms/${code}/status`), "playing");

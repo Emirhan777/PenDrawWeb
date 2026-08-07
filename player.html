@@ -6,59 +6,102 @@
   <title>PenDraw Party — Player</title>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
-    :root { --bg:#0b0b10; --panel:#16161f; --line:#262633; --accent:#5b8cff; --good:#39d98a; }
-    html, body { height:100%; background:var(--bg); color:#fff; font-family:-apple-system, Segoe UI, Roboto, sans-serif; }
-    body { display:flex; flex-direction:column; }
-    .wrap { flex:1; display:flex; flex-direction:column; padding:18px; gap:14px; max-width:520px; margin:0 auto; width:100%; }
+    :root { --bg:#0b0b10; --panel:#16161f; --line:#262633; --accent:#5b8cff; --good:#39d98a; --bad:#ff5a5a; }
+    html, body { height:100%; background:var(--bg); color:#fff; font-family:-apple-system, Segoe UI, Roboto, sans-serif; overflow:hidden; }
+
+    /* JOIN */
+    #join { min-height:100%; display:flex; flex-direction:column; justify-content:center; padding:18px; max-width:520px; margin:0 auto; width:100%; }
     h1 { font-size:22px; } .muted { color:#9aa; }
     input { font-size:18px; padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:#12121a; color:#fff; width:100%; }
-    button { font-size:18px; font-weight:700; padding:14px; border:0; border-radius:12px; background:var(--accent); color:#fff; cursor:pointer; width:100%; }
-    button.sec { background:#2a2a38; }
     .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; }
-    .word { font-size:40px; font-weight:800; letter-spacing:1px; text-align:center; color:var(--good); }
-    #pad { position:fixed; inset:0; background:#000; touch-action:none; cursor:crosshair; }
-    #padCanvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
-    #penDot { position:absolute; width:16px; height:16px; margin:-8px 0 0 -8px; border-radius:50%; background:var(--accent); box-shadow:0 0 10px var(--accent); pointer-events:none; }
-    .drawWord { position:fixed; top:14px; left:50%; transform:translateX(-50%); text-align:center; pointer-events:none; text-shadow:0 1px 6px rgba(0,0,0,0.95); z-index:5; }
-    .drawWord .wl { display:block; color:rgba(255,255,255,0.7); font-size:14px; }
-    .drawWord .ww { display:block; color:var(--good); font-weight:800; font-size:30px; letter-spacing:1px; }
-    #clearBtn { position:fixed; top:14px; right:14px; width:auto; z-index:6; background:rgba(255,255,255,0.9); color:#111; font-size:15px; font-weight:700; padding:10px 16px; border-radius:10px; }
-    .row { display:flex; gap:10px; } .row input { flex:1; } .row button { width:auto; padding:14px 20px; }
-    .big { font-size:26px; font-weight:800; text-align:center; }
-    .center { text-align:center; }
+    #joinBtn { font-size:18px; font-weight:700; padding:14px; border:0; border-radius:12px; background:var(--accent); color:#fff; cursor:pointer; width:100%; }
+
+    /* IN-GAME (full screen) */
+    #game { display:none; }
+    #pad { position:fixed; inset:0; background:#000; touch-action:none; }
+    #sketch { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+    #penDot { position:absolute; width:16px; height:16px; margin:-8px 0 0 -8px; border-radius:50%; background:var(--accent); box-shadow:0 0 10px var(--accent); pointer-events:none; display:none; }
+
+    .ov { position:fixed; pointer-events:none; text-shadow:0 1px 6px rgba(0,0,0,0.95); z-index:5; }
+    #wordOv { top:12px; left:50%; transform:translateX(-50%); text-align:center; display:none; }
+    #wordOv .wl { display:block; color:rgba(255,255,255,0.7); font-size:13px; }
+    #wordOv .ww { display:block; color:var(--good); font-weight:800; font-size:26px; letter-spacing:1px; }
+    #promptOv { top:14px; left:50%; transform:translateX(-50%); text-align:center; font-size:16px; font-weight:600; max-width:60vw; display:none; }
+    #scoreOv { top:12px; right:12px; display:none; }
+    #scoreTable { border-collapse:collapse; font-size:14px; background:rgba(255,255,255,0.06); border-radius:8px; }
+    #scoreTable td { padding:3px 10px; }
+    #scoreTable td.sc { text-align:right; font-weight:800; font-variant-numeric:tabular-nums; }
+    #scoreTable tr.drawing td { color:var(--accent); }
+    #feedOv { bottom:78px; left:12px; max-width:72vw; display:none; flex-direction:column; gap:2px; font-size:16px; }
+    #feedOv .ok { color:var(--good); font-weight:800; }
+    #feedOv .bad { color:var(--bad); font-weight:800; }
+
+    #drawerBtns { position:fixed; top:12px; left:12px; display:none; gap:8px; z-index:6; }
+    #drawerBtns button { width:auto; background:rgba(255,255,255,0.9); color:#111; font-size:14px; font-weight:700; padding:9px 14px; border:0; border-radius:9px; cursor:pointer; }
+
+    #guessBar { position:fixed; bottom:14px; left:12px; right:12px; display:none; gap:10px; z-index:6; }
+    #guessBar input { flex:1; }
+    #guessBar button { width:auto; background:var(--accent); color:#fff; font-size:16px; font-weight:700; padding:12px 18px; border:0; border-radius:10px; cursor:pointer; }
+
+    #msgBox { position:fixed; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; gap:8px;
+      background:var(--bg); z-index:8; padding:24px; text-align:center; }
+    #msgBox .big { font-size:26px; font-weight:800; }
+    #msgScores { margin-top:12px; width:100%; max-width:360px; }
+    #msgScores .row { display:flex; justify-content:space-between; padding:6px 2px; border-bottom:1px solid var(--line); }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <!-- JOIN -->
-    <div id="join">
-      <h1>🎨 PenDraw Party</h1>
-      <p class="muted" style="margin:6px 0 14px">Enter the code shown on the big screen.</p>
-      <div class="card" style="display:flex; flex-direction:column; gap:12px">
-        <input id="codeIn" inputmode="numeric" placeholder="Room code (e.g. 483920)" maxlength="6" />
-        <input id="nameIn" placeholder="Your name" maxlength="16" />
-        <button id="joinBtn">Join game</button>
-        <div id="joinErr" style="color:#f77; text-align:center"></div>
-      </div>
+  <div id="join">
+    <h1>🎨 PenDraw Party</h1>
+    <p class="muted" style="margin:6px 0 14px">Enter the code shown on the big screen.</p>
+    <div class="card" style="display:flex; flex-direction:column; gap:12px">
+      <input id="codeIn" inputmode="numeric" placeholder="Room code (e.g. 483920)" maxlength="6" />
+      <input id="nameIn" placeholder="Your name" maxlength="16" />
+      <button id="joinBtn">Join game</button>
+      <div id="joinErr" style="color:#f77; text-align:center"></div>
+    </div>
+  </div>
+
+  <div id="game">
+    <div id="pad"><canvas id="sketch"></canvas><div id="penDot"></div></div>
+
+    <div id="wordOv" class="ov"><span class="wl">Draw this (only you can see it):</span><span class="ww" id="wordText"></span></div>
+    <div id="promptOv" class="ov"></div>
+    <div id="scoreOv" class="ov"><table id="scoreTable"></table></div>
+    <div id="feedOv" class="ov"></div>
+
+    <div id="drawerBtns">
+      <button id="clearBtn">Clear</button>
+      <button id="skipBtn">Skip</button>
+    </div>
+    <div id="guessBar">
+      <input id="guessIn" placeholder="your guess" autocomplete="off" />
+      <button id="guessSend">Send</button>
     </div>
 
-    <!-- IN-GAME (states swapped by JS) -->
-    <div id="stage" style="display:none; flex:1; flex-direction:column; gap:14px"></div>
+    <div id="msgBox">
+      <div class="big" id="msgTitle"></div>
+      <div class="muted" id="msgSub"></div>
+      <div id="msgScores"></div>
+    </div>
   </div>
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getDatabase, ref, get, set, update, push, remove, onValue, onDisconnect, serverTimestamp }
+    import { getDatabase, ref, get, set, push, remove, onValue, onChildAdded, onDisconnect, serverTimestamp }
       from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
     import { firebaseConfig } from "./firebase-config.js";
 
     const db = getDatabase(initializeApp(firebaseConfig));
     const $ = (id)=>document.getElementById(id);
+    const esc = (s)=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
     const pid = "p_" + Math.random().toString(36).slice(2,10);
 
-    let code=null, name=null, room=null, lastRoundN=null, lastSig=null;
+    let code=null, name=null;
+    let status=null, round={}, players={};
+    let role=null;            // 'drawer' | 'guesser' | null
+    let lastRoundN=null;
 
-    // prefill code from ?room=
     const q = new URLSearchParams(location.search).get("room"); if(q) $("codeIn").value=q;
 
     $("joinBtn").onclick = async () => {
@@ -68,93 +111,107 @@
       if(!s.exists()){ $("joinErr").textContent="No room with that code."; return; }
       await set(ref(db,`rooms/${code}/players/${pid}`), { name, score:0, joinedAt: serverTimestamp() });
       onDisconnect(ref(db,`rooms/${code}/players/${pid}`)).remove();
-      $("join").style.display="none"; $("stage").style.display="flex";
-      ["status","round","players"].forEach((p)=> onValue(ref(db,`rooms/${code}/${p}`), (snap)=>{ room = { ...(room||{}), [p]: snap.val() }; render(); }));
+      $("join").style.display="none"; $("game").style.display="block";
+      startGame();
     };
 
-    function render(){
-      if(!room) return;
-      const status = room.status, r = room.round||{};
-      const iAmDrawer = r.drawerId === pid;
-      const players = room.players||{};
-      if(r.n !== lastRoundN){ lastRoundN = r.n; } // new round
-      const iGuessedRight = !!(r.correctGuessers && r.correctGuessers[pid]);
+    // ---------- sketch canvas (shown to drawer AND guessers) ----------
+    const canvas=$("sketch"), cx=canvas.getContext("2d");
+    let W=0,H=0, pts=[];
+    function sizeCanvas(){ const dpr=devicePixelRatio||1, r=canvas.getBoundingClientRect();
+      W=r.width; H=r.height; canvas.width=W*dpr; canvas.height=H*dpr; cx.setTransform(dpr,0,0,dpr,0,0); redraw(); }
+    addEventListener("resize", sizeCanvas);
+    function redraw(){ cx.clearRect(0,0,W,H); if(pts.length<1) return; cx.strokeStyle="#fff"; cx.lineWidth=4; cx.lineJoin="round"; cx.lineCap="round";
+      cx.beginPath(); for(let i=0;i<pts.length;i++){ const p=pts[i]; if(i===0||p.m) cx.moveTo(p.x*W,p.y*H); else cx.lineTo(p.x*W,p.y*H); } cx.stroke(); }
+    function addSeg(p){ const prev=pts[pts.length-1]; pts.push(p); if(!prev||p.m) return;
+      cx.strokeStyle="#fff"; cx.lineWidth=4; cx.lineJoin="round"; cx.lineCap="round";
+      cx.beginPath(); cx.moveTo(prev.x*W,prev.y*H); cx.lineTo(p.x*W,p.y*H); cx.stroke(); }
+    function resetSketch(){ pts=[]; cx.clearRect(0,0,W,H); }
 
-      // Only rebuild the UI when the VIEW actually changes (not on every drawing point),
-      // otherwise the drawer's pad would reset on every stroke.
-      const sig = `${status}|${iAmDrawer}|${r.n}|${iGuessedRight}`;
-      if(sig === lastSig) return;
-      lastSig = sig;
+    // ---------- drawing input (only when it's your turn) ----------
+    const pad=$("pad"), dot=$("penDot");
+    let drawing=false, last=0;
+    const pointsRef = () => ref(db,`rooms/${code}/drawing/points`);
+    function sendPoint(e, isStart){
+      const rect=pad.getBoundingClientRect();
+      const nx=Math.min(Math.max((e.clientX-rect.left)/rect.width,0),1);
+      const ny=Math.min(Math.max((e.clientY-rect.top)/rect.height,0),1);
+      dot.style.left=(e.clientX-rect.left)+"px"; dot.style.top=(e.clientY-rect.top)+"px";
+      const now=performance.now();
+      if(isStart){ last=now; const p={x:nx,y:ny,m:true}; addSeg(p); push(pointsRef(),p); return; }
+      if(now-last>=40){ last=now; const p={x:nx,y:ny}; addSeg(p); push(pointsRef(),p); }
+    }
+    pad.addEventListener("pointerdown",(e)=>{ if(role!=="drawer") return; drawing=true; pad.setPointerCapture(e.pointerId); sendPoint(e,true); });
+    pad.addEventListener("pointermove",(e)=>{ if(drawing) sendPoint(e); });
+    pad.addEventListener("pointerup",  ()=>{ drawing=false; });
 
-      const stage = $("stage");
+    $("clearBtn").onclick = ()=>{ if(role!=="drawer") return; resetSketch(); remove(pointsRef()); set(ref(db,`rooms/${code}/drawing/clear`), Date.now()); };
+    $("skipBtn").onclick  = ()=>{ if(role!=="drawer") return; set(ref(db,`rooms/${code}/skip`), Date.now()); };
 
-      if(status==="lobby" || !status){
-        stage.innerHTML = `<div class="card center"><div class="big">You're in! 🎉</div>
-          <p class="muted" style="margin-top:8px">Waiting for the host to start… (${Object.keys(players).length} in the room)</p></div>`;
-        return;
-      }
-      if(status==="roundEnd"){
-        const scores = Object.values(players).sort((a,b)=>(b.score||0)-(a.score||0))
-          .map(p=>`<div style="display:flex;justify-content:space-between"><span>${p.name}</span><b>${p.score||0}</b></div>`).join("");
-        stage.innerHTML = `<div class="card center"><div class="big">Round over</div>
-          <p class="muted">Get ready for the next drawer…</p></div>
-          <div class="card"><div class="muted" style="margin-bottom:8px">Scores</div>${scores}</div>`;
-        return;
-      }
-      // status === playing
-      if(iAmDrawer){
-        stage.innerHTML = `<div id="pad"><canvas id="padCanvas"></canvas><div id="penDot" style="left:50%;top:50%"></div></div>
-          <div class="drawWord"><span class="wl">Draw this (only you can see it):</span><span class="ww">${(r.word||"").toUpperCase()}</span></div>
-          <button id="clearBtn">Clear</button>`;
-        wirePad();
+    // ---------- guessing ----------
+    function sendGuess(){ const t=($("guessIn").value||"").trim(); if(!t) return;
+      push(ref(db,`rooms/${code}/guesses`), { pid, name, text:t }); $("guessIn").value=""; }
+    $("guessSend").onclick = sendGuess;
+    $("guessIn").addEventListener("keydown",(e)=>{ if(e.key==="Enter") sendGuess(); });
+
+    // ---------- feed + scoreboard ----------
+    function renderFeedEntry(f){ if(!f) return; const d=document.createElement("span");
+      d.innerHTML = f.correct ? `${esc(f.name)} <span class="ok">guessed</span> it!` : `${esc(f.name)}: <span class="bad">${esc(f.text)}</span>`;
+      const el=$("feedOv"); el.appendChild(d); while(el.children.length>6) el.removeChild(el.firstChild); }
+    function renderScoreboard(){
+      const arr=Object.entries(players).sort((a,b)=>(b[1].score||0)-(a[1].score||0));
+      $("scoreTable").innerHTML = arr.map(([id,p])=>`<tr class="${id===round.drawerId?'drawing':''}"><td>${esc(p.name||'?')}${id===round.drawerId?' ✏️':''}</td><td class="sc">${p.score||0}</td></tr>`).join("");
+    }
+
+    // ---------- listeners ----------
+    function startGame(){
+      sizeCanvas();
+      ["status","round","players"].forEach((p)=> onValue(ref(db,`rooms/${code}/${p}`), (snap)=>{
+        if(p==="status") status = snap.val();
+        else if(p==="round") round = snap.val()||{};
+        else players = snap.val()||{};
+        onState();
+      }));
+      // sketch: render incoming points only when I'm a guesser (the drawer draws locally)
+      onChildAdded(pointsRef(), (s)=>{ const v=s.val(); if(v&&typeof v.x==="number" && role==="guesser") addSeg(v); });
+      onValue(ref(db,`rooms/${code}/drawing/clear`), (s)=>{ if(s.exists()) resetSketch(); });
+      onChildAdded(ref(db,`rooms/${code}/feed`), (s)=> renderFeedEntry(s.val()));
+    }
+
+    function onState(){
+      if(round.n !== lastRoundN){ lastRoundN = round.n; resetSketch(); $("feedOv").innerHTML=""; }
+      const playing = status==="playing";
+      role = playing ? (round.drawerId===pid ? "drawer" : "guesser") : null;
+      const iAmDrawer = role==="drawer";
+      const iGuessedRight = !!(round.correctGuessers && round.correctGuessers[pid]);
+
+      renderScoreboard();
+
+      $("wordText").textContent = (round.word||"").toUpperCase();
+      $("wordOv").style.display     = (playing && iAmDrawer) ? "block" : "none";
+      $("promptOv").textContent     = (playing && !iAmDrawer) ? `Guess what ${players[round.drawerId]?.name||"someone"} is drawing 👀` : "";
+      $("promptOv").style.display   = (playing && !iAmDrawer) ? "block" : "none";
+      $("scoreOv").style.display    = playing ? "block" : "none";
+      $("feedOv").style.display     = playing ? "flex" : "none";
+      $("drawerBtns").style.display = (playing && iAmDrawer) ? "flex" : "none";
+      $("guessBar").style.display   = (playing && !iAmDrawer && !iGuessedRight) ? "flex" : "none";
+      $("penDot").style.display     = (playing && iAmDrawer) ? "block" : "none";
+
+      if(!playing){
+        $("msgBox").style.display = "flex";
+        if(status==="roundEnd"){
+          $("msgTitle").textContent = "Round over";
+          $("msgSub").textContent = "Get ready for the next drawer…";
+          const arr=Object.values(players).sort((a,b)=>(b.score||0)-(a.score||0));
+          $("msgScores").innerHTML = arr.map(p=>`<div class="row"><span>${esc(p.name)}</span><b>${p.score||0}</b></div>`).join("");
+        } else {
+          $("msgTitle").textContent = "You're in! 🎉";
+          $("msgSub").textContent = `Waiting for the host to start… (${Object.keys(players).length} in the room)`;
+          $("msgScores").innerHTML = "";
+        }
       } else {
-        const dn = players[r.drawerId]?.name || "someone";
-        stage.innerHTML = `<div class="card center"><div class="big">Guess what ${dn} is drawing 👀</div>
-            <p class="muted">Watch the big screen, then type your guess.</p></div>
-          <div class="card">${ iGuessedRight
-              ? `<div class="big" style="color:var(--good)">✅ Correct! You got it.</div>`
-              : `<div class="row"><input id="guessIn" placeholder="your guess" autocomplete="off" />
-                 <button id="guessBtn">Send</button></div><div id="guessMsg" class="muted center" style="margin-top:8px"></div>` }
-          </div>`;
-        if(!iGuessedRight) wireGuess();
+        $("msgBox").style.display = "none";
       }
-    }
-
-    // ----- drawer pad -----
-    function wirePad(){
-      const pad=$("pad"), dot=$("penDot"), canvas=$("padCanvas"), cx=canvas.getContext("2d");
-      let drawing=false, last=0, W=0, H=0, pts=[];
-      const pointsRef = ref(db,`rooms/${code}/drawing/points`);
-
-      function sizeCanvas(){ if(!canvas.isConnected) return; const dpr=devicePixelRatio||1, r=pad.getBoundingClientRect();
-        W=r.width; H=r.height; canvas.width=W*dpr; canvas.height=H*dpr; cx.setTransform(dpr,0,0,dpr,0,0); redraw(); }
-      function redraw(){ cx.clearRect(0,0,W,H); if(pts.length<1) return; cx.strokeStyle="#fff"; cx.lineWidth=4; cx.lineJoin="round"; cx.lineCap="round";
-        cx.beginPath(); for(let i=0;i<pts.length;i++){ const p=pts[i]; if(i===0||p.m) cx.moveTo(p.x*W,p.y*H); else cx.lineTo(p.x*W,p.y*H); } cx.stroke(); }
-      function addSeg(p){ const prev=pts[pts.length-1]; pts.push(p); if(!prev||p.m) return;
-        cx.strokeStyle="#fff"; cx.lineWidth=4; cx.lineJoin="round"; cx.lineCap="round";
-        cx.beginPath(); cx.moveTo(prev.x*W,prev.y*H); cx.lineTo(p.x*W,p.y*H); cx.stroke(); }
-      sizeCanvas(); addEventListener("resize", sizeCanvas);
-
-      const send=(e, isStart)=>{ const rect=pad.getBoundingClientRect();
-        const nx=Math.min(Math.max((e.clientX-rect.left)/rect.width,0),1);
-        const ny=Math.min(Math.max((e.clientY-rect.top)/rect.height,0),1);
-        dot.style.left=(e.clientX-rect.left)+"px"; dot.style.top=(e.clientY-rect.top)+"px";
-        const now=performance.now();
-        if(isStart){ last=now; const p={x:nx,y:ny,m:true}; addSeg(p); push(pointsRef,p); return; }
-        if(now-last>=40){ last=now; const p={x:nx,y:ny}; addSeg(p); push(pointsRef,p); } };
-      pad.addEventListener("pointerdown",(e)=>{ drawing=true; pad.setPointerCapture(e.pointerId); send(e,true); });
-      pad.addEventListener("pointermove",(e)=>{ if(drawing) send(e); });
-      pad.addEventListener("pointerup",()=>{ drawing=false; });
-      $("clearBtn").onclick = ()=>{ pts=[]; cx.clearRect(0,0,W,H); remove(pointsRef); set(ref(db,`rooms/${code}/drawing/clear`), Date.now()); };
-    }
-
-    // ----- guesser -----
-    function wireGuess(){
-      const submit=()=>{ const t=($("guessIn").value||"").trim(); if(!t) return;
-        push(ref(db,`rooms/${code}/guesses`), { pid, name, text:t }); $("guessIn").value="";
-        $("guessMsg").textContent="Sent — keep guessing!"; };
-      $("guessBtn").onclick=submit;
-      $("guessIn").addEventListener("keydown",(e)=>{ if(e.key==="Enter") submit(); });
     }
   </script>
 </body>
