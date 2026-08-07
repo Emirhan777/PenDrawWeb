@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>PenDraw Party — Player</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    :root { --bg:#0b0b10; --panel:#16161f; --line:#262633; --accent:#5b8cff; --good:#39d98a; }
+    html, body { height:100%; background:var(--bg); color:#fff; font-family:-apple-system, Segoe UI, Roboto, sans-serif; }
+    body { display:flex; flex-direction:column; }
+    .wrap { flex:1; display:flex; flex-direction:column; padding:18px; gap:14px; max-width:520px; margin:0 auto; width:100%; }
+    h1 { font-size:22px; } .muted { color:#9aa; }
+    input { font-size:18px; padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:#12121a; color:#fff; width:100%; }
+    button { font-size:18px; font-weight:700; padding:14px; border:0; border-radius:12px; background:var(--accent); color:#fff; cursor:pointer; width:100%; }
+    button.sec { background:#2a2a38; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; }
+    .word { font-size:40px; font-weight:800; letter-spacing:1px; text-align:center; color:var(--good); }
+    #pad { flex:1; min-height:280px; background:#000; border:1px solid var(--line); border-radius:14px; position:relative; touch-action:none; cursor:crosshair; }
+    #penDot { position:absolute; width:16px; height:16px; margin:-8px 0 0 -8px; border-radius:50%; background:var(--accent); box-shadow:0 0 10px var(--accent); pointer-events:none; }
+    .row { display:flex; gap:10px; } .row input { flex:1; } .row button { width:auto; padding:14px 20px; }
+    .big { font-size:26px; font-weight:800; text-align:center; }
+    .center { text-align:center; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- JOIN -->
+    <div id="join">
+      <h1>🎨 PenDraw Party</h1>
+      <p class="muted" style="margin:6px 0 14px">Enter the code shown on the big screen.</p>
+      <div class="card" style="display:flex; flex-direction:column; gap:12px">
+        <input id="codeIn" inputmode="numeric" placeholder="Room code (e.g. 483920)" maxlength="6" />
+        <input id="nameIn" placeholder="Your name" maxlength="16" />
+        <button id="joinBtn">Join game</button>
+        <div id="joinErr" style="color:#f77; text-align:center"></div>
+      </div>
+    </div>
+
+    <!-- IN-GAME (states swapped by JS) -->
+    <div id="stage" style="display:none; flex:1; flex-direction:column; gap:14px"></div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getDatabase, ref, get, set, update, push, remove, onValue, onDisconnect, serverTimestamp }
+      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+    import { firebaseConfig } from "./firebase-config.js";
+
+    const db = getDatabase(initializeApp(firebaseConfig));
+    const $ = (id)=>document.getElementById(id);
+    const pid = "p_" + Math.random().toString(36).slice(2,10);
+
+    let code=null, name=null, room=null, lastRoundN=null, lastSig=null;
+
+    // prefill code from ?room=
+    const q = new URLSearchParams(location.search).get("room"); if(q) $("codeIn").value=q;
+
+    $("joinBtn").onclick = async () => {
+      code = ($("codeIn").value||"").trim(); name = ($("nameIn").value||"").trim();
+      if(code.length<4 || !name){ $("joinErr").textContent="Enter a code and your name."; return; }
+      const s = await get(ref(db,`rooms/${code}`));
+      if(!s.exists()){ $("joinErr").textContent="No room with that code."; return; }
+      await set(ref(db,`rooms/${code}/players/${pid}`), { name, score:0, joinedAt: serverTimestamp() });
+      onDisconnect(ref(db,`rooms/${code}/players/${pid}`)).remove();
+      $("join").style.display="none"; $("stage").style.display="flex";
+      ["status","round","players"].forEach((p)=> onValue(ref(db,`rooms/${code}/${p}`), (snap)=>{ room = { ...(room||{}), [p]: snap.val() }; render(); }));
+    };
+
+    function render(){
+      if(!room) return;
+      const status = room.status, r = room.round||{};
+      const iAmDrawer = r.drawerId === pid;
+      const players = room.players||{};
+      if(r.n !== lastRoundN){ lastRoundN = r.n; } // new round
+      const iGuessedRight = !!(r.correctGuessers && r.correctGuessers[pid]);
+
+      // Only rebuild the UI when the VIEW actually changes (not on every drawing point),
+      // otherwise the drawer's pad would reset on every stroke.
+      const sig = `${status}|${iAmDrawer}|${r.n}|${iGuessedRight}`;
+      if(sig === lastSig) return;
+      lastSig = sig;
+
+      const stage = $("stage");
+
+      if(status==="lobby" || !status){
+        stage.innerHTML = `<div class="card center"><div class="big">You're in! 🎉</div>
+          <p class="muted" style="margin-top:8px">Waiting for the host to start… (${Object.keys(players).length} in the room)</p></div>`;
+        return;
+      }
+      if(status==="roundEnd"){
+        const scores = Object.values(players).sort((a,b)=>(b.score||0)-(a.score||0))
+          .map(p=>`<div style="display:flex;justify-content:space-between"><span>${p.name}</span><b>${p.score||0}</b></div>`).join("");
+        stage.innerHTML = `<div class="card center"><div class="big">Round over</div>
+          <p class="muted">Get ready for the next drawer…</p></div>
+          <div class="card"><div class="muted" style="margin-bottom:8px">Scores</div>${scores}</div>`;
+        return;
+      }
+      // status === playing
+      if(iAmDrawer){
+        stage.innerHTML = `<div class="card center"><div class="muted">Draw this (only you can see it):</div>
+            <div class="word">${(r.word||"").toUpperCase()}</div></div>
+          <div id="pad"><div id="penDot" style="left:50%;top:50%"></div></div>
+          <p class="muted center">Drag to draw — it shows on the big screen.</p>`;
+        wirePad();
+      } else {
+        const dn = players[r.drawerId]?.name || "someone";
+        stage.innerHTML = `<div class="card center"><div class="big">Guess what ${dn} is drawing 👀</div>
+            <p class="muted">Watch the big screen, then type your guess.</p></div>
+          <div class="card">${ iGuessedRight
+              ? `<div class="big" style="color:var(--good)">✅ Correct! You got it.</div>`
+              : `<div class="row"><input id="guessIn" placeholder="your guess" autocomplete="off" />
+                 <button id="guessBtn">Send</button></div><div id="guessMsg" class="muted center" style="margin-top:8px"></div>` }
+          </div>`;
+        if(!iGuessedRight) wireGuess();
+      }
+    }
+
+    // ----- drawer pad -----
+    function wirePad(){
+      const pad=$("pad"), dot=$("penDot"); let drawing=false, last=0;
+      const pointsRef = ref(db,`rooms/${code}/drawing/points`);
+      const send=(e)=>{ const rect=pad.getBoundingClientRect();
+        const nx=Math.min(Math.max((e.clientX-rect.left)/rect.width,0),1);
+        const ny=Math.min(Math.max((e.clientY-rect.top)/rect.height,0),1);
+        dot.style.left=(e.clientX-rect.left)+"px"; dot.style.top=(e.clientY-rect.top)+"px";
+        const now=performance.now(); if(now-last>=40){ last=now; push(pointsRef,{x:nx,y:ny}); } };
+      pad.addEventListener("pointerdown",(e)=>{ drawing=true; pad.setPointerCapture(e.pointerId); send(e); });
+      pad.addEventListener("pointermove",(e)=>{ if(drawing) send(e); });
+      pad.addEventListener("pointerup",()=>{ drawing=false; });
+    }
+
+    // ----- guesser -----
+    function wireGuess(){
+      const submit=()=>{ const t=($("guessIn").value||"").trim(); if(!t) return;
+        push(ref(db,`rooms/${code}/guesses`), { pid, name, text:t }); $("guessIn").value="";
+        $("guessMsg").textContent="Sent — keep guessing!"; };
+      $("guessBtn").onclick=submit;
+      $("guessIn").addEventListener("keydown",(e)=>{ if(e.key==="Enter") submit(); });
+    }
+  </script>
+</body>
+</html>

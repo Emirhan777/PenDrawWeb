@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PenDraw Party — Big Screen</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root { --accent:#5b8cff; --good:#39d98a; --bad:#ff5a5a; }
+    html, body { height:100%; background:#000; color:#fff;
+      font-family:-apple-system, Segoe UI, Roboto, sans-serif; overflow:hidden; }
+
+    /* ---- Home ---- */
+    #home { height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:24px; }
+    #home h1 { font-size:44px; letter-spacing:.5px; }
+    #home p { color:#9aa; }
+    .big-btn { font-size:22px; font-weight:700; padding:18px 34px; border:0; border-radius:14px;
+      background:var(--accent); color:#fff; cursor:pointer; }
+
+    /* ---- Full-screen canvas + transparent overlays ---- */
+    #game { display:none; }
+    #canvas { position:fixed; inset:0; width:100vw; height:100vh; display:block; background:#000; }
+
+    .ov { position:fixed; pointer-events:none; text-shadow:0 1px 5px rgba(0,0,0,0.95); z-index:5; }
+
+    #codeBox { top:20px; left:26px; }
+    #codeBox .lbl { font-size:13px; letter-spacing:5px; color:rgba(255,255,255,0.65); }
+    #codeBox .num { font-size:26px; font-weight:800; letter-spacing:5px; line-height:1.1; }
+
+    #statusBox { top:24px; left:50%; transform:translateX(-50%); font-size:20px; font-weight:600; text-align:center; }
+
+    #scoreBox { top:20px; right:26px; }
+    #scoreTable { border-collapse:collapse; font-size:16px; min-width:150px; background:rgba(255,255,255,0.05); border-radius:10px; }
+    #scoreTable td { padding:4px 12px; }
+    #scoreTable td.sc { text-align:right; font-weight:800; font-variant-numeric:tabular-nums; }
+    #scoreTable tr.drawing td { color:var(--accent); }
+    #scoreTable td.empty { color:rgba(255,255,255,0.5); font-size:13px; }
+
+    #feed { bottom:22px; left:26px; max-width:60vw; display:flex; flex-wrap:wrap; gap:6px 18px; font-size:19px; }
+    #feed .ok  { color:var(--good); font-weight:800; }
+    #feed .bad { color:var(--bad);  font-weight:800; }
+
+    #controls { position:fixed; bottom:22px; right:26px; display:flex; gap:10px; pointer-events:auto; z-index:9; }
+    #controls button { font-size:15px; font-weight:600; padding:10px 16px; border:0; border-radius:10px; cursor:pointer;
+      background:rgba(42,42,56,0.85); color:#fff; }
+    #controls button.primary { background:var(--accent); }
+
+    #reveal { position:fixed; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center;
+      background:rgba(0,0,0,0.55); gap:8px; pointer-events:none; z-index:7; }
+    #reveal .w { font-size:52px; font-weight:800; color:var(--good); }
+
+    #lobbyQr { position:fixed; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; gap:14px; z-index:4; }
+    #lobbyQr .card { background:#fff; padding:16px; border-radius:18px; box-shadow:0 8px 40px rgba(0,0,0,0.5); }
+    #lobbyQr .card img { display:block; width:min(46vh,320px); height:min(46vh,320px); }
+    #lobbyQr .cap { font-size:26px; font-weight:800; }
+    #lobbyQr .sub { color:#9aa; font-size:16px; }
+    #lobbyQr .sub b { color:#fff; letter-spacing:3px; }
+  </style>
+</head>
+<body>
+  <div id="home">
+    <h1>🎨 PenDraw Party</h1>
+    <p>Host a game — players join from the app (or player.html) with the code.</p>
+    <button class="big-btn" id="newGame">＋ New Game</button>
+    <div id="homeStatus" style="color:#9aa;"></div>
+  </div>
+
+  <div id="game">
+    <canvas id="canvas"></canvas>
+
+    <div id="codeBox" class="ov"><div class="lbl">JOIN CODE</div><div class="num" id="codeText">------</div></div>
+    <div id="statusBox" class="ov"><span id="status">Waiting for players…</span></div>
+    <div id="scoreBox" class="ov"><table id="scoreTable"></table></div>
+    <div id="feed" class="ov"></div>
+
+    <div id="lobbyQr">
+      <div class="card"><img id="qrImg" alt="Scan to join" /></div>
+      <div class="cap">Scan to join</div>
+      <div class="sub">or enter code <b id="qrCode"></b> in the app</div>
+    </div>
+
+    <div id="controls">
+      <button id="startBtn" class="primary">Start game</button>
+      <button id="nextBtn" style="display:none">Next round ▶</button>
+      <button id="skipBtn" style="display:none">Skip</button>
+    </div>
+
+    <div id="reveal">
+      <div>The word was</div>
+      <div class="w" id="revealWord"></div>
+      <div id="revealWho" style="color:#bcd"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getDatabase, ref, get, set, update, remove, onValue, onChildAdded, increment, serverTimestamp }
+      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+    import { firebaseConfig } from "./firebase-config.js";
+
+    const db = getDatabase(initializeApp(firebaseConfig));
+
+    const WORDS = ["cat","dog","fish","elephant","snake","spider","tree","house","car","sun","star",
+      "flower","apple","banana","boat","key","heart","umbrella","clock","ladder","hat","cup","bird",
+      "frog","turtle","rabbit","bee","shark","whale","duck","mouse","lion","pizza","guitar","rocket"];
+    const randWord = () => WORDS[Math.floor(Math.random()*WORDS.length)];
+    const norm = (s) => (s||"").toString().trim().toLowerCase();
+    const esc = (s) => (s==null?"":String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+    const $ = (id) => document.getElementById(id);
+    const homeEl=$("home"), gameEl=$("game"), canvas=$("canvas"), ctx=canvas.getContext("2d");
+
+    let code = null, word = null, drawerId = null, turnIndex = 0, roundNo = 0;
+    let players = {}, correct = {}, judged = new Set();
+
+    // ---------- canvas (full screen) ----------
+    let W=0,H=0;
+    function resize(){ const dpr=devicePixelRatio||1, r=canvas.getBoundingClientRect();
+      W=r.width; H=r.height; canvas.width=W*dpr; canvas.height=H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); clearCanvas(); redrawAll(); }
+    addEventListener("resize", resize);
+    let pts=[];
+    function clearCanvas(){ ctx.fillStyle="#000"; ctx.fillRect(0,0,W,H); }
+    function redrawAll(){ if(pts.length<1) return; ctx.strokeStyle="#fff"; ctx.lineWidth=4; ctx.lineJoin="round"; ctx.lineCap="round";
+      ctx.beginPath(); for(let i=0;i<pts.length;i++){ const p=pts[i]; if(i===0||p.m) ctx.moveTo(p.x*W,p.y*H); else ctx.lineTo(p.x*W,p.y*H); } ctx.stroke(); }
+    function addSeg(p){ const prev=pts[pts.length-1]; pts.push(p); if(!prev || p.m) return;
+      ctx.strokeStyle="#fff"; ctx.lineWidth=4; ctx.lineJoin="round"; ctx.lineCap="round";
+      ctx.beginPath(); ctx.moveTo(prev.x*W,prev.y*H); ctx.lineTo(p.x*W,p.y*H); ctx.stroke(); }
+    function resetDrawing(){ pts=[]; clearCanvas(); }
+
+    // ---------- create room ----------
+    async function newCode(){ for(let i=0;i<20;i++){ const c=String(Math.floor(100000+Math.random()*900000));
+      const s=await get(ref(db,`rooms/${c}`)); if(!s.exists()) return c; } return String(Date.now()).slice(-6); }
+
+    $("newGame").onclick = async () => {
+      $("homeStatus").textContent = "Creating room…";
+      code = await newCode();
+      await set(ref(db,`rooms/${code}`), { status:"lobby", createdAt: serverTimestamp() });
+      $("codeText").textContent = code;
+      // QR encodes a link to the web player with the code pre-filled (?room=CODE),
+      // resolved against THIS page's URL so it works on localhost, LAN IP, or GitHub Pages.
+      const joinUrl = new URL('player.html?room=' + code, location.href).href;
+      $("qrImg").src = 'https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=0&data=' + encodeURIComponent(joinUrl);
+      $("qrCode").textContent = code;
+      homeEl.style.display="none"; gameEl.style.display="block";
+      resize(); attachListeners();
+    };
+
+    // ---------- listeners ----------
+    function attachListeners(){
+      onValue(ref(db,`rooms/${code}/players`), (s)=>{ players = s.val()||{}; renderScoreboard(); });
+      onValue(ref(db,`rooms/${code}/round`), (s)=>{ const r=s.val();
+        word = r?.word || null; drawerId = r?.drawerId || null; roundNo = r?.n || 0; correct = r?.correctGuessers || {};
+        renderScoreboard(); });
+      onValue(ref(db,`rooms/${code}/status`), (s)=>{ renderStatus(s.val()); });
+      // live drawing (lightweight: one point at a time)
+      onChildAdded(ref(db,`rooms/${code}/drawing/points`), (s)=>{ const v=s.val(); if(v&&typeof v.x==="number") addSeg(v); });
+      onValue(ref(db,`rooms/${code}/drawing/clear`), (s)=>{ if(s.exists()) resetDrawing(); });
+      // guesses (authority judges here)
+      onChildAdded(ref(db,`rooms/${code}/guesses`), (s)=> judgeGuess(s.key, s.val()));
+    }
+
+    function judgeGuess(key, g){
+      if(!g || judged.has(key)) return;
+      judged.add(key);
+      if(g.pid === drawerId) return;                 // drawer can't guess
+      if(correct[g.pid]) return;                      // already got it
+      const nm = players[g.pid]?.name || g.name || "Someone";
+      const isRight = word && norm(g.text) === norm(word);
+      if(isRight){
+        correct[g.pid] = true;
+        update(ref(db,`rooms/${code}/round/correctGuessers`), { [g.pid]: true });
+        update(ref(db,`rooms/${code}/players`), { [`${g.pid}/score`]: increment(100) });
+        addFeed(`${esc(nm)} <span class="ok">guessed</span> it!`);
+        const guessers = Object.keys(players).filter(p=>p!==drawerId);
+        if(guessers.length && guessers.every(p=>correct[p])) endRound();
+      } else {
+        addFeed(`${esc(nm)}: <span class="bad">${esc(g.text)}</span>`);
+      }
+    }
+
+    function addFeed(html){ const d=document.createElement("span"); d.innerHTML=html;
+      const f=$("feed"); f.appendChild(d); while(f.children.length>6) f.removeChild(f.firstChild); }
+
+    // ---------- rounds ----------
+    $("startBtn").onclick = ()=> beginRound(0);
+    $("nextBtn").onclick  = ()=> beginRound(turnIndex+1);
+    $("skipBtn").onclick  = ()=> endRound();
+
+    async function beginRound(idx){
+      const order = Object.keys(players);
+      if(order.length < 2){ $("status").textContent = "Need at least 2 players to start"; return; }
+      turnIndex = idx; roundNo = roundNo+1;
+      const drawer = order[idx % order.length];
+      const w = randWord();
+      correct = {}; judged = new Set();
+      $("feed").innerHTML = "";
+      await remove(ref(db,`rooms/${code}/drawing/points`));
+      await remove(ref(db,`rooms/${code}/guesses`));
+      resetDrawing();
+      await set(ref(db,`rooms/${code}/round`), { n:roundNo, turnIndex:idx, drawerId:drawer, word:w, order, correctGuessers:{}, startedAt: serverTimestamp() });
+      await set(ref(db,`rooms/${code}/status`), "playing");
+    }
+
+    async function endRound(){
+      const numCorrect = Object.keys(correct).length;
+      if(numCorrect>0 && drawerId) await update(ref(db,`rooms/${code}/players`), { [`${drawerId}/score`]: increment(50*numCorrect) });
+      $("revealWord").textContent = word || "?";
+      const names = Object.keys(correct).map(p=>players[p]?.name).filter(Boolean);
+      $("revealWho").textContent = names.length ? ("Guessed by: "+names.join(", ")) : "Nobody guessed it";
+      await set(ref(db,`rooms/${code}/status`), "roundEnd");
+    }
+
+    // ---------- render ----------
+    function renderStatus(status){
+      const start=$("startBtn"), next=$("nextBtn"), skip=$("skipBtn"), reveal=$("reveal"), qr=$("lobbyQr");
+      if(status==="lobby"){ $("status").textContent="Waiting for players…"; start.style.display=""; next.style.display="none"; skip.style.display="none"; reveal.style.display="none"; qr.style.display="flex"; }
+      else if(status==="playing"){ const dn=players[drawerId]?.name||"?"; $("status").textContent=`Round ${roundNo} — ${dn} is drawing ✏️`; start.style.display="none"; next.style.display="none"; skip.style.display=""; reveal.style.display="none"; qr.style.display="none"; }
+      else if(status==="roundEnd"){ $("status").textContent=`Round ${roundNo} over`; start.style.display="none"; next.style.display=""; skip.style.display="none"; reveal.style.display="flex"; qr.style.display="none"; }
+    }
+
+    function renderScoreboard(){
+      const arr=Object.entries(players).sort((a,b)=>(b[1].score||0)-(a[1].score||0));
+      const rows = arr.map(([pid,p])=>
+        `<tr class="${pid===drawerId?'drawing':''}"><td>${esc(p.name||"?")}${pid===drawerId?" ✏️":""}</td><td class="sc">${p.score||0}</td></tr>`
+      ).join("");
+      $("scoreTable").innerHTML = arr.length ? rows : `<tr><td class="empty">Share the code to join</td></tr>`;
+    }
+  </script>
+</body>
+</html>
