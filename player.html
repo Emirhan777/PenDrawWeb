@@ -43,6 +43,10 @@
     #guessBar input { flex:1; }
     #guessBar button { width:auto; background:var(--accent); color:#fff; font-size:16px; font-weight:700; padding:12px 18px; border:0; border-radius:10px; cursor:pointer; }
 
+    #reveal { position:fixed; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; background:rgba(0,0,0,0.5); gap:8px; pointer-events:none; z-index:7; }
+    #reveal .w { font-size:44px; font-weight:800; color:var(--good); }
+    #nextBtn { position:fixed; bottom:14px; right:14px; display:none; width:auto; background:rgba(42,42,56,0.92); color:#fff; font-size:15px; font-weight:700; padding:11px 18px; border:0; border-radius:10px; cursor:pointer; z-index:9; }
+
     #msgBox { position:fixed; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; gap:8px;
       background:var(--bg); z-index:8; padding:24px; text-align:center; }
     #msgBox .big { font-size:26px; font-weight:800; }
@@ -80,6 +84,13 @@
       <input id="guessIn" placeholder="your guess" autocomplete="off" />
       <button id="guessSend">Send</button>
     </div>
+
+    <div id="reveal">
+      <div>The word was</div>
+      <div class="w" id="revealWord"></div>
+      <div id="revealWho" style="color:#bcd"></div>
+    </div>
+    <button id="nextBtn">Next round ▶</button>
 
     <div id="msgBox">
       <div class="big" id="msgTitle"></div>
@@ -203,6 +214,7 @@
       push(ref(db,`rooms/${code}/guesses`), { pid, name, text:t }); $("guessIn").value=""; }
     $("guessSend").onclick = sendGuess;
     $("guessIn").addEventListener("keydown",(e)=>{ if(e.key==="Enter") sendGuess(); });
+    $("nextBtn").onclick = ()=>{ set(ref(db,`rooms/${code}/next`), Date.now()); };
 
     // ---------- feed + scoreboard ----------
     function renderFeedEntry(f){ if(!f) return; const d=document.createElement("span");
@@ -231,6 +243,8 @@
     function onState(){
       if(round.n !== lastRoundN){ lastRoundN = round.n; resetSketch(); $("feedOv").innerHTML=""; if(inputMode==="tilt") needsCalib=true; }
       const playing = status==="playing";
+      const ended = status==="roundEnd";
+      const inGame = playing || ended;
       role = playing ? (round.drawerId===pid ? "drawer" : "guesser") : null;
       const iAmDrawer = role==="drawer";
       const iGuessedRight = !!(round.correctGuessers && round.correctGuessers[pid]);
@@ -241,26 +255,28 @@
       $("wordOv").style.display     = (playing && iAmDrawer) ? "block" : "none";
       $("promptOv").textContent     = (playing && !iAmDrawer) ? `Guess what ${players[round.drawerId]?.name||"someone"} is drawing 👀` : "";
       $("promptOv").style.display   = (playing && !iAmDrawer) ? "block" : "none";
-      $("scoreOv").style.display    = playing ? "block" : "none";
-      $("feedOv").style.display     = playing ? "flex" : "none";
+      $("scoreOv").style.display    = inGame ? "block" : "none";
+      $("feedOv").style.display     = inGame ? "flex" : "none";
       $("drawerBtns").style.display = (playing && iAmDrawer) ? "flex" : "none";
       $("guessBar").style.display   = (playing && !iAmDrawer && !iGuessedRight) ? "flex" : "none";
       $("penDot").style.display     = (playing && iAmDrawer) ? "block" : "none";
 
-      if(!playing){
-        $("msgBox").style.display = "flex";
-        if(status==="roundEnd"){
-          $("msgTitle").textContent = "Round over";
-          $("msgSub").textContent = "Get ready for the next drawer…";
-          const arr=Object.values(players).sort((a,b)=>(b.score||0)-(a.score||0));
-          $("msgScores").innerHTML = arr.map(p=>`<div class="row"><span>${esc(p.name)}</span><b>${p.score||0}</b></div>`).join("");
-        } else {
-          $("msgTitle").textContent = "You're in! 🎉";
-          $("msgSub").textContent = `Waiting for the host to start… (${Object.keys(players).length} in the room)`;
-          $("msgScores").innerHTML = "";
-        }
-      } else {
-        $("msgBox").style.display = "none";
+      // round-end reveal (transparent, over the sketch) + Next round button — like the big screen
+      $("reveal").style.display  = ended ? "flex" : "none";
+      $("nextBtn").style.display = ended ? "inline-block" : "none";
+      if(ended){
+        $("revealWord").textContent = (round.word||"?");
+        const names = Object.keys(round.correctGuessers||{}).map(id=>players[id]?.name).filter(Boolean);
+        $("revealWho").textContent = names.length ? ("Guessed by: "+names.join(", ")) : "Nobody guessed it";
+      }
+
+      // only the lobby uses the full-screen message box
+      const lobby = !inGame;
+      $("msgBox").style.display = lobby ? "flex" : "none";
+      if(lobby){
+        $("msgTitle").textContent = "You're in! 🎉";
+        $("msgSub").textContent = `Waiting for the host to start… (${Object.keys(players).length} in the room)`;
+        $("msgScores").innerHTML = "";
       }
     }
   </script>

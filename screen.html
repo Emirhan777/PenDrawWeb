@@ -160,6 +160,9 @@
       // a player pressed Skip -> end the round (authority acts)
       let lastSkip = null;
       onValue(ref(db,`rooms/${code}/skip`), (s)=>{ const v=s.val(); if(lastSkip===null){ lastSkip=v; return; } if(v!==lastSkip){ lastSkip=v; if(curStatus==="playing") endRound(); } });
+      // a player pressed Next round -> advance (authority acts)
+      let lastNext = null;
+      onValue(ref(db,`rooms/${code}/next`), (s)=>{ const v=s.val(); if(lastNext===null){ lastNext=v; return; } if(v!==lastNext){ lastNext=v; if(curStatus==="roundEnd") beginRound(turnIndex+1); } });
     }
 
     function judgeGuess(key, g){
