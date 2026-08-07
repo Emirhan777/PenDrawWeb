@@ -17,6 +17,7 @@
     .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; }
     .word { font-size:40px; font-weight:800; letter-spacing:1px; text-align:center; color:var(--good); }
     #pad { position:fixed; inset:0; background:#000; touch-action:none; cursor:crosshair; }
+    #padCanvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
     #penDot { position:absolute; width:16px; height:16px; margin:-8px 0 0 -8px; border-radius:50%; background:var(--accent); box-shadow:0 0 10px var(--accent); pointer-events:none; }
     .drawWord { position:fixed; top:14px; left:50%; transform:translateX(-50%); text-align:center; pointer-events:none; text-shadow:0 1px 6px rgba(0,0,0,0.95); z-index:5; }
     .drawWord .wl { display:block; color:rgba(255,255,255,0.7); font-size:14px; }
@@ -102,7 +103,7 @@
       }
       // status === playing
       if(iAmDrawer){
-        stage.innerHTML = `<div id="pad"><div id="penDot" style="left:50%;top:50%"></div></div>
+        stage.innerHTML = `<div id="pad"><canvas id="padCanvas"></canvas><div id="penDot" style="left:50%;top:50%"></div></div>
           <div class="drawWord"><span class="wl">Draw this (only you can see it):</span><span class="ww">${(r.word||"").toUpperCase()}</span></div>
           <button id="clearBtn">Clear</button>`;
         wirePad();
@@ -121,19 +122,30 @@
 
     // ----- drawer pad -----
     function wirePad(){
-      const pad=$("pad"), dot=$("penDot"); let drawing=false, last=0;
+      const pad=$("pad"), dot=$("penDot"), canvas=$("padCanvas"), cx=canvas.getContext("2d");
+      let drawing=false, last=0, W=0, H=0, pts=[];
       const pointsRef = ref(db,`rooms/${code}/drawing/points`);
+
+      function sizeCanvas(){ if(!canvas.isConnected) return; const dpr=devicePixelRatio||1, r=pad.getBoundingClientRect();
+        W=r.width; H=r.height; canvas.width=W*dpr; canvas.height=H*dpr; cx.setTransform(dpr,0,0,dpr,0,0); redraw(); }
+      function redraw(){ cx.clearRect(0,0,W,H); if(pts.length<1) return; cx.strokeStyle="#fff"; cx.lineWidth=4; cx.lineJoin="round"; cx.lineCap="round";
+        cx.beginPath(); for(let i=0;i<pts.length;i++){ const p=pts[i]; if(i===0||p.m) cx.moveTo(p.x*W,p.y*H); else cx.lineTo(p.x*W,p.y*H); } cx.stroke(); }
+      function addSeg(p){ const prev=pts[pts.length-1]; pts.push(p); if(!prev||p.m) return;
+        cx.strokeStyle="#fff"; cx.lineWidth=4; cx.lineJoin="round"; cx.lineCap="round";
+        cx.beginPath(); cx.moveTo(prev.x*W,prev.y*H); cx.lineTo(p.x*W,p.y*H); cx.stroke(); }
+      sizeCanvas(); addEventListener("resize", sizeCanvas);
+
       const send=(e, isStart)=>{ const rect=pad.getBoundingClientRect();
         const nx=Math.min(Math.max((e.clientX-rect.left)/rect.width,0),1);
         const ny=Math.min(Math.max((e.clientY-rect.top)/rect.height,0),1);
         dot.style.left=(e.clientX-rect.left)+"px"; dot.style.top=(e.clientY-rect.top)+"px";
         const now=performance.now();
-        if(isStart){ last=now; push(pointsRef,{x:nx,y:ny,m:true}); return; } // pen-lift: new stroke
-        if(now-last>=40){ last=now; push(pointsRef,{x:nx,y:ny}); } };
+        if(isStart){ last=now; const p={x:nx,y:ny,m:true}; addSeg(p); push(pointsRef,p); return; }
+        if(now-last>=40){ last=now; const p={x:nx,y:ny}; addSeg(p); push(pointsRef,p); } };
       pad.addEventListener("pointerdown",(e)=>{ drawing=true; pad.setPointerCapture(e.pointerId); send(e,true); });
       pad.addEventListener("pointermove",(e)=>{ if(drawing) send(e); });
       pad.addEventListener("pointerup",()=>{ drawing=false; });
-      $("clearBtn").onclick = ()=>{ remove(pointsRef); set(ref(db,`rooms/${code}/drawing/clear`), Date.now()); };
+      $("clearBtn").onclick = ()=>{ pts=[]; cx.clearRect(0,0,W,H); remove(pointsRef); set(ref(db,`rooms/${code}/drawing/clear`), Date.now()); };
     }
 
     // ----- guesser -----
