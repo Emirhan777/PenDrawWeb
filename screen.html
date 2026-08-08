@@ -94,7 +94,7 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getDatabase, ref, get, set, update, remove, push, onValue, onChildAdded, increment, serverTimestamp }
+    import { getDatabase, ref, get, set, update, remove, push, onValue, onChildAdded, onDisconnect, increment, serverTimestamp }
       from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
     import { firebaseConfig } from "./firebase-config.js";
 
@@ -128,13 +128,44 @@
     function resetDrawing(){ pts=[]; clearCanvas(); }
 
     // ---------- create room ----------
+    const MAX_ROOMS = 15;                    // cap on simultaneous rooms (protects the free-tier limit)
+    const ORPHAN_MS = 6 * 60 * 60 * 1000;    // rooms older than 6h with no live host = abandoned
+
     async function newCode(){ for(let i=0;i<20;i++){ const c=String(Math.floor(100000+Math.random()*900000));
       const s=await get(ref(db,`rooms/${c}`)); if(!s.exists()) return c; } return String(Date.now()).slice(-6); }
 
+    // Safety-net cleanup: onDisconnect handles normal closes, but a crash/network drop
+    // can leave a room behind. Before making a new game, delete any room older than 6h,
+    // then return how many rooms remain (used to enforce the cap).
+    async function sweepOrphans(){
+      const snap = await get(ref(db,'rooms'));
+      const all = snap.val() || {};
+      const now = Date.now();
+      const dead = [];
+      let live = 0;
+      for(const [c, r] of Object.entries(all)){
+        const created = typeof r?.createdAt === 'number' ? r.createdAt : 0;
+        if(created && (now - created) > ORPHAN_MS) dead.push(c); else live++;
+      }
+      await Promise.all(dead.map(c => remove(ref(db,`rooms/${c}`))));
+      return live;
+    }
+
     $("newGame").onclick = async () => {
       $("homeStatus").textContent = "Creating room…";
+      let remaining = 0;
+      try { remaining = await sweepOrphans(); } catch(e){ remaining = 0; }
+      if(remaining >= MAX_ROOMS){
+        $("homeStatus").textContent = `Too many games running right now (${remaining}/${MAX_ROOMS}). Please try again in a bit.`;
+        return;
+      }
       code = await newCode();
-      await set(ref(db,`rooms/${code}`), { status:"lobby", createdAt: serverTimestamp() });
+      const roomRef = ref(db,`rooms/${code}`);
+      await set(roomRef, { status:"lobby", createdAt: serverTimestamp() });
+      // Self-deleting room: when THIS host tab closes, refreshes, or loses its
+      // connection, Firebase automatically removes the whole room — sketch, feed,
+      // scores and players — so abandoned games never pile up.
+      onDisconnect(roomRef).remove();
       $("codeText").textContent = code;
       // QR encodes a link to the web player with the code pre-filled (?room=CODE),
       // resolved against THIS page's URL so it works on localhost, LAN IP, or GitHub Pages.
